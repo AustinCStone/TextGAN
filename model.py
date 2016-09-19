@@ -5,7 +5,7 @@ from tensorflow.python.ops import seq2seq
 import numpy as np
 
 class Model():
-    def __init__(self, args, infer=False):
+    def __init__(self, args, infer=True):
         self.args = args
         if infer:
             args.batch_size = 1
