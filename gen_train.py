@@ -98,12 +98,21 @@ def train(args):
             for b in range(data_loader.num_batches):
                 start = time.time()
                 x, y = data_loader.next_batch()
+                # TODO: Why must the input be 4 X rnn_size?
                 gen_feed = {gen_model.input_data: x, gen_model.initial_state: np.zeros((args.batch_size, 4*args.rnn_size))}
                 gen_outputs = sess.run([gen_model.outputs], gen_feed)
-                print (len(gen_outputs))
-                print (len(gen_outputs[0]))
+                # Convert the input tokens input word vectors
+                with tf.variable_scope('rnnlm', reuse=True):
+                    with tf.device("/cpu:0"):
+                        embedding = tf.get_variable("embedding", [args.vocab_size, args.rnn_size])
+                        real_inputs = tf.nn.embedding_lookup(embedding, x)
                 outputs_wv = np.asarray(gen_outputs[0]).transpose(1, 0, 2)
-                disc_feed = {disc_model.input_data_wv: outputs_wv, disc_model.targets: np.random.randint(2, size=args.batch_size).astype('float32').reshape((50, 1))}
+                # mix batch with generated data and real data
+                disc_input_feed = np.concatenate((sess.run(real_inputs), outputs_wv), axis=0)
+                print(disc_input_feed.shape)
+                # just a vector of batch_size ones followed by batch_size zeros
+                disc_targets_feed = np.concatenate((np.ones((args.batch_size, 1)), np.zeros((args.batch_size, 1))), axis=0)
+                disc_feed = {disc_model.input_data_wv: disc_input_feed, disc_model.targets: disc_targets_feed}
                 disc_train_loss, gen_train_loss, _, _ = sess.run([disc_model.cost_wv, gen_model.cost, disc_model.train_op_wv, gen_model.train_op], disc_feed)
                 end = time.time()
                 print("{}/{} (epoch {}), disc_train_loss = {:.3f}, gen_train_loss = {:.3f}, time/batch = {:.3f}" \

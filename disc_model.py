@@ -24,15 +24,15 @@ class DiscModel():
 
         self.cell = cell = rnn_cell.MultiRNNCell([cell] * args.num_layers)
         # If the input data is given as word tokens, feed this value
-        self.input_data_text = tf.placeholder(tf.int32, [args.batch_size, args.seq_length])
+        self.input_data_text = tf.placeholder(tf.int32, [args.batch_size * 2, args.seq_length], name='input_data_text')
         # If the input data is given as the generator's word vec outputs, feed this value
-        self.input_data_wv = tf.placeholder(tf.float32, [args.batch_size, args.seq_length, args.rnn_size])
+        self.input_data_wv = tf.placeholder(tf.float32, [args.batch_size * 2, args.seq_length, args.rnn_size], name='input_data_wv')
         # Binary targets. 1 = is valid, 0 = came from generator
-        self.targets = tf.placeholder(tf.float32, [args.batch_size, 1])
-        self.initial_state = cell.zero_state(args.batch_size, tf.float32)
+        self.targets = tf.placeholder(tf.float32, [args.batch_size * 2, 1], name='disc_targets')
+        self.initial_state = cell.zero_state(args.batch_size * 2, tf.float32)
         # Fully connected layer is applied to the final state to determine the output class
-        self.final_weights = tf.Variable(tf.random_normal([args.rnn_size, 1], stddev=0.35),
-            name="final_weights")
+        self.fc_layer = tf.Variable(tf.random_normal([args.rnn_size, 1], stddev=0.35, name='disc_fc_layer'),
+            name="fc_layer")
         with tf.variable_scope('rnnlm'):
             with tf.device("/cpu:0"):
                 embedding = tf.get_variable("embedding", [args.vocab_size, args.rnn_size])
@@ -45,15 +45,15 @@ class DiscModel():
         inputs_wv = [tf.squeeze(input_, [1]) for input_ in inputs_wv]
         output_wv, states_wv = rnn.rnn(cell, inputs_wv, initial_state=self.initial_state)
 
-        #predicted_classes_text = tf.matmul(output_text[-1], self.final_weights)
-        predicted_classes_wv = tf.matmul(output_wv[-1], self.final_weights)
+        #predicted_classes_text = tf.matmul(output_text[-1], self.fc_layer)
+        predicted_classes_wv = tf.matmul(output_wv[-1], self.fc_layer)
 
         #loss_text = tf.nn.sigmoid_cross_entropy_with_logits(predicted_classes_text, self.targets)
         loss_wv = tf.nn.sigmoid_cross_entropy_with_logits(predicted_classes_wv, self.targets)
 
         #self.cost_text = tf.reduce_mean(loss_text)
         self.cost_wv = tf.reduce_mean(loss_wv)
-        self.lr = tf.Variable(0.0, trainable=False)
+        self.lr = tf.Variable(0.0, trainable=False, name='disc_lr')
         tvars = tf.trainable_variables()
         grads, _ = tf.clip_by_global_norm(tf.gradients(self.cost_wv, tvars),
                 args.grad_clip)
