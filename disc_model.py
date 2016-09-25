@@ -47,9 +47,9 @@ class DiscModel():
         grads, _ = tf.clip_by_global_norm(tf.gradients(self.loss, tvars),
             self.args.grad_clip)
         # optimize only discriminator owned variables 
-        v_and_g = [(g, v) for g, v in zip(grads, tvars) if v.name.startswith('DISC')]
+        g_and_v = [(g, v) for g, v in zip(grads, tvars) if v.name.startswith('DISC')]
         optimizer = tf.train.AdamOptimizer(self.lr)
-        self.train_op = optimizer.apply_gradients(v_and_g)
+        self.train_op = optimizer.apply_gradients(g_and_v)
 
     def discriminate_wv(self, input_data_wv):
         with tf.variable_scope('DISC', reuse=self.has_init_seq2seq) as scope:
@@ -59,9 +59,8 @@ class DiscModel():
         return predicted_classes_wv
 
     def discriminate_text(self, input_data_text):
-        with tf.device("/cpu:0"):
-            inputs = tf.split(1, self.args.seq_length, tf.nn.embedding_lookup(self.embedding, self.input_data_text))
-            inputs = [tf.squeeze(input_, [1]) for input_ in inputs]
+        inputs = tf.split(1, self.args.seq_length, tf.nn.embedding_lookup(self.embedding, input_data_text))
+        inputs = [tf.squeeze(input_, [1]) for input_ in inputs]
         with tf.variable_scope('DISC', reuse=self.has_init_seq2seq) as scope:
             self.has_init_seq2seq = True
             output_wv, states_wv = seq2seq.rnn_decoder(inputs, self.initial_state, self.cell, scope=scope)

@@ -35,13 +35,12 @@ class GenModel():
         grads, _ = tf.clip_by_global_norm(tf.gradients(self.loss, tvars),
                 self.args.grad_clip)
         optimizer = tf.train.AdamOptimizer(self.lr)
-        v_and_g = [(g, v) for g, v in zip(grads, tvars) if v.name.startswith('GEN')]
-        self.train_op = optimizer.apply_gradients(v_and_g)
+        g_and_v = [(g, v) for g, v in zip(grads, tvars) if v.name.startswith('GEN')]
+        self.train_op = optimizer.apply_gradients(g_and_v)
 
     def generate(self, initial_state, input_data):
-        with tf.device("/cpu:0"):
-            inputs = tf.split(1, self.args.seq_length, tf.nn.embedding_lookup(self.embedding, input_data))
-            inputs = [tf.squeeze(input_, [1]) for input_ in inputs]
+        inputs = tf.split(1, self.args.seq_length, tf.nn.embedding_lookup(self.embedding, input_data))
+        inputs = [tf.squeeze(input_, [1]) for input_ in inputs]
 
         # TODO: Should we have some transition weights here?
         def loop(prev, _):
