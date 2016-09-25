@@ -5,11 +5,8 @@ from tensorflow.python.ops import seq2seq
 import numpy as np
 
 class GenModel():
-    def __init__(self, args, disc_model, infer=False):
+    def __init__(self, args):
         self.args = args
-        if infer:
-            args.batch_size = 1
-            args.seq_length = 1
 
         if args.gen_model == 'rnn':
             cell_fn = rnn_cell.BasicRNNCell
@@ -25,31 +22,36 @@ class GenModel():
         self.cell = cell = rnn_cell.MultiRNNCell([cell] * args.num_layers)
         self.input_data = tf.placeholder(tf.int32, [args.batch_size, args.seq_length])
         self.initial_state = tf.placeholder(tf.float32, [args.batch_size, args.rnn_size * 4], name="initial_state")
-        print self.initial_state.get_shape()
-
-        with tf.variable_scope('rnnlm'):
-            softmax_w = tf.get_variable("softmax_w", [args.rnn_size, args.vocab_size])
-            softmax_b = tf.get_variable("softmax_b", [args.vocab_size])
-        with tf.variable_scope('rnnlm', reuse=True):
-            with tf.device("/cpu:0"):
-                embedding = tf.get_variable("embedding", [args.vocab_size, args.rnn_size])
-                inputs = tf.split(1, args.seq_length, tf.nn.embedding_lookup(embedding, self.input_data))
-                inputs = [tf.squeeze(input_, [1]) for input_ in inputs]
-
-        def loop(prev, _):
-            prev = tf.matmul(prev, softmax_w) + softmax_b
-            prev_symbol = tf.stop_gradient(tf.argmax(prev, 1))
-            return tf.nn.embedding_lookup(embedding, prev_symbol)
-        outputs, last_state = seq2seq.rnn_decoder(inputs, self.initial_state, cell, loop_function=loop if infer else None, scope='rnnlm')
-        self.outputs = outputs
-        self.cost = -disc_model.cost_wv
-        self.final_state = last_state
+        
         self.lr = tf.Variable(0.0, trainable=False)
+        self.has_init_seq2seq = False
+
+    def attach_cost(self, disc_model):
+        self.embedding = disc_model.embedding
+        self.outputs = self.generate(self.initial_state, self.input_data)
+        self.loss = 1. - tf.reduce_mean(disc_model.discriminate_wv(self.outputs))
         tvars = tf.trainable_variables()
-        grads, _ = tf.clip_by_global_norm(tf.gradients(self.cost, tvars),
-                args.grad_clip)
+        grads, _ = tf.clip_by_global_norm(tf.gradients(self.loss, tvars),
+                self.args.grad_clip)
         optimizer = tf.train.AdamOptimizer(self.lr)
         self.train_op = optimizer.apply_gradients(zip(grads, tvars))
+
+    def generate(self, initial_state, input_data):
+        for v in tf.get_collection(tf.GraphKeys.VARIABLES):
+            print v.name
+        with tf.device("/cpu:0"):
+            inputs = tf.split(1, self.args.seq_length, tf.nn.embedding_lookup(self.embedding, input_data))
+            inputs = [tf.squeeze(input_, [1]) for input_ in inputs]
+
+        # TODO: Should we have some transition weights here?
+        def loop(prev, _):
+            return prev
+
+        #print initial_state.get_shape()
+        with tf.variable_scope('GEN', reuse=self.has_init_seq2seq) as scope:
+            self.has_init_seq2seq = True
+            outputs, last_state = seq2seq.rnn_decoder(inputs, initial_state, self.cell, loop_function=loop, scope=scope)
+        return outputs
 
     def sample(self, sess, words, vocab, num=200, prime='first all', sampling_type=1):
         state = self.cell.zero_state(1, tf.float32).eval()

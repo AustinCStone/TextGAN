@@ -86,7 +86,9 @@ def train(args):
         cPickle.dump((data_loader.words, data_loader.vocab), f)
     
     disc_model = DiscModel(args)
-    gen_model = GenModel(args, disc_model)
+    gen_model = GenModel(args)
+    gen_model.attach_cost(disc_model)
+    disc_model.attach_cost(gen_model)
 
     with tf.Session() as sess:
         tf.initialize_all_variables().run()
@@ -98,46 +100,40 @@ def train(args):
         training_gen = False
         for e in range(args.num_epochs):
             sess.run(tf.assign(gen_model.lr, args.learning_rate * (args.decay_rate ** e)))
+            sess.run(tf.assign(disc_model.lr, args.learning_rate * (args.decay_rate ** e)))
             data_loader.reset_batch_pointer()
             #state = gen_model.initial_state.eval()
             for b in range(data_loader.num_batches):
                 start = time.time()
                 x, y = data_loader.next_batch()
                 # TODO: Why must the input be 4 X rnn_size?
-                gen_feed = {gen_model.input_data: x, gen_model.initial_state: np.random.uniform(-1., 1., (args.batch_size, 4*args.rnn_size))}
-                gen_outputs = sess.run([gen_model.outputs], gen_feed)
-                # Convert the input tokens input word vectors
-                with tf.variable_scope('rnnlm', reuse=True):
-                    with tf.device("/cpu:0"):
-                        embedding = tf.get_variable('embedding', [args.vocab_size, args.rnn_size])
-                        real_inputs = tf.nn.embedding_lookup(embedding, x)
-                outputs_wv = np.asarray(gen_outputs[0]).transpose(1, 0, 2)
-                # mix batch with generated data and real data
-                disc_input_feed = np.concatenate((sess.run(real_inputs), outputs_wv), axis=0)
-                print(disc_input_feed.shape)
-                # just a vector of batch_size ones followed by batch_size zeros
-                disc_targets_feed = np.concatenate((np.ones((args.batch_size, 1)), np.zeros((args.batch_size, 1))), axis=0)
-                disc_feed = {disc_model.input_data_wv: disc_input_feed, disc_model.targets: disc_targets_feed}
-                train_outputs = [disc_model.cost_wv, gen_model.cost]
+                gen_feed = {gen_model.input_data: x, gen_model.initial_state: np.random.uniform(-1., 1., (args.batch_size, 4*args.rnn_size)).astype('float32')}
+                disc_feed = {disc_model.input_data_text: x, gen_model.input_data: x, gen_model.initial_state: np.random.uniform(-1., 1., (args.batch_size, 4*args.rnn_size)).astype('float32')}
+                train_outputs = [disc_model.loss, gen_model.loss]
                 if training_gen:
                     train_outputs = [gen_model.train_op] + train_outputs
                 if training_disc:
-                    train_outputs = [disc_model.train_op_wv] + train_outputs
+                    train_outputs = [disc_model.train_op] + train_outputs
+
                 outputs = sess.run(train_outputs, disc_feed)
-                disc_train_loss, gen_train_loss = outputs[-2:]
-                if disc_train_loss < args.disc_train_bound:
+
+                disc_loss, gen_loss = outputs[-2:]
+
+                if disc_loss < args.disc_train_bound:
                     training_disc = False
                     training_gen = True
                     print 'training the generator only...'
-                if gen_train_loss < args.gen_train_bound:
+
+                if gen_loss < args.gen_train_bound:
                     training_gen = False
                     training_disc = True
                     print 'training the discriminator only...'
+
                 end = time.time()
-                print "{}/{} (epoch {}), disc_train_loss = {:.3f}, gen_train_loss = {:.3f}, time/batch = {:.3f}" \
+                print "{}/{} (epoch {}), disc_loss = {:.3f}, gen_loss = {:.3f}, time/batch = {:.3f}" \
                     .format(e * data_loader.num_batches + b,
                             args.num_epochs * data_loader.num_batches,
-                            e, disc_train_loss, gen_train_loss, end - start)
+                            e, disc_loss, gen_loss, end - start)
                 if (e * data_loader.num_batches + b) % args.save_every == 0 \
                         or (e==args.num_epochs-1 and b == data_loader.num_batches-1): # save for the last result
                     checkpoint_path = os.path.join(args.save_dir, 'gen_model.ckpt')
