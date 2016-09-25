@@ -6,6 +6,22 @@ import numpy as np
 import re
 import itertools
 
+
+def print_generator_nn(embedding, generator_outputs, vocab):
+    inv_vocab = {v: k for k, v in vocab.items()}
+    words_produced = []
+    for output in generator_outputs:
+        # just print the first one in the batch for now
+        output = output[0]
+        best_match = np.argmax(np.dot(embedding, output))
+        words_produced.append(inv_vocab[best_match])
+    print ' '.join(words_produced)
+
+
+
+
+
+# TODO: fix this... It sucks
 class TextLoader():
     def __init__(self, data_dir, batch_size, seq_length):
         self.data_dir = data_dir
@@ -31,7 +47,7 @@ class TextLoader():
         Tokenization/string cleaning for all datasets except for SST.
         Original taken from https://github.com/yoonkim/CNN_sentence/blob/master/process_data
         """
-        string = re.sub(r"[^가-힣A-Za-z0-9(),!?\'\`]", " ", string)
+        string = re.sub(r"[^가-힣A-Za-z0-9(),!?\'\`.]", " ", string)
         string = re.sub(r"\'s", " \'s", string)
         string = re.sub(r"\'ve", " \'ve", string)
         string = re.sub(r"n\'t", " n\'t", string)
@@ -39,10 +55,11 @@ class TextLoader():
         string = re.sub(r"\'d", " \'d", string)
         string = re.sub(r"\'ll", " \'ll", string)
         string = re.sub(r",", " , ", string)
+        string = re.sub(r"\.", " . ", string)
         string = re.sub(r"!", " ! ", string)
-        string = re.sub(r"\(", " \( ", string)
-        string = re.sub(r"\)", " \) ", string)
-        string = re.sub(r"\?", " \? ", string)
+        string = re.sub(r"\(", " ( ", string)
+        string = re.sub(r"\)", " ) ", string)
+        string = re.sub(r"\?", " ? ", string)
         string = re.sub(r"\s{2,}", " ", string)
         return string.strip().lower()
 
@@ -66,9 +83,8 @@ class TextLoader():
             data = f.read()
 
         # Optional text cleaning or make them lower case, etc.
-        #data = self.clean_str(data)
+        data = self.clean_str(data)
         x_text = data.split()
-
         self.vocab, self.words = self.build_vocab(x_text)
         self.vocab_size = len(self.words)
 

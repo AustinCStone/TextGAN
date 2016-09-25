@@ -6,13 +6,14 @@ import time
 import os
 from six.moves import cPickle
 
-from utils import TextLoader
+from utils import TextLoader, print_generator_nn
 from gen_model import GenModel
 from disc_model import DiscModel
+from standard_model import StandardModel
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--data_dir', type=str, default='data/tinyshakespeare',
+    parser.add_argument('--data_dir', type=str, default='data/sherlock',
                        help='data directory containing input.txt')
     parser.add_argument('--save_dir', type=str, default='save',
                        help='directory to store checkpointed models')
@@ -20,6 +21,8 @@ def main():
                        help='size of RNN hidden state')
     parser.add_argument('--num_layers', type=int, default=2,
                        help='number of layers in the RNN')
+    parser.add_argument('--model', type=str, default='lstm',
+                        help='rnn, gru, or lstm')
     parser.add_argument('--gen_model', type=str, default='lstm',
                        help='rnn, gru, or lstm')
     parser.add_argument('--disc_model', type=str, default='lstm',
@@ -87,6 +90,7 @@ def train(args):
     
     disc_model = DiscModel(args)
     gen_model = GenModel(args)
+    stand_model = StandardModel(args, disc_model.embedding)
     gen_model.attach_cost(disc_model)
     disc_model.attach_cost(gen_model)
 
@@ -102,14 +106,16 @@ def train(args):
             sess.run(tf.assign(gen_model.lr, args.learning_rate * (args.decay_rate ** e)))
             sess.run(tf.assign(disc_model.lr, args.learning_rate * (args.decay_rate ** e)))
             data_loader.reset_batch_pointer()
-            #state = gen_model.initial_state.eval()
+            state = stand_model.initial_state.eval()
             for b in range(data_loader.num_batches):
                 start = time.time()
                 x, y = data_loader.next_batch()
                 # TODO: Why must the input be 4 X rnn_size?
                 gen_feed = {gen_model.input_data: x, gen_model.initial_state: np.random.uniform(-1., 1., (args.batch_size, 4*args.rnn_size)).astype('float32')}
                 disc_feed = {disc_model.input_data_text: x, gen_model.input_data: x, gen_model.initial_state: np.random.uniform(-1., 1., (args.batch_size, 4*args.rnn_size)).astype('float32')}
-                train_outputs = [disc_model.loss, gen_model.loss]
+                stand_feed = {stand_model.input_data: x, stand_model.targets: y, stand_model.initial_state: state}
+                stand_loss, state, _ = sess.run([stand_model.cost, stand_model.final_state, stand_model.train_op], stand_feed)
+                train_outputs = [stand_model.train_op, disc_model.loss, gen_model.loss, gen_model.outputs, gen_model.embedding]
                 if training_gen:
                     train_outputs = [gen_model.train_op] + train_outputs
                 if training_disc:
@@ -117,7 +123,9 @@ def train(args):
 
                 outputs = sess.run(train_outputs, disc_feed)
 
-                disc_loss, gen_loss = outputs[-2:]
+                disc_loss, gen_loss, gen_outputs, embedding = outputs[-4:]
+                print_generator_nn(embedding, gen_outputs, data_loader.vocab)
+
 
                 if disc_loss < args.disc_train_bound:
                     training_disc = False
@@ -130,10 +138,10 @@ def train(args):
                     print 'training the discriminator only...'
 
                 end = time.time()
-                print "{}/{} (epoch {}), disc_loss = {:.3f}, gen_loss = {:.3f}, time/batch = {:.3f}" \
+                print "{}/{} (epoch {}), disc_loss = {:.3f}, stand_loss = {:.3f}, gen_loss = {:.3f}, time/batch = {:.3f}" \
                     .format(e * data_loader.num_batches + b,
                             args.num_epochs * data_loader.num_batches,
-                            e, disc_loss, gen_loss, end - start)
+                            e, disc_loss, stand_loss, gen_loss, end - start)
                 if (e * data_loader.num_batches + b) % args.save_every == 0 \
                         or (e==args.num_epochs-1 and b == data_loader.num_batches-1): # save for the last result
                     checkpoint_path = os.path.join(args.save_dir, 'gen_model.ckpt')
