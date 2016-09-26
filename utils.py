@@ -9,13 +9,14 @@ import itertools
 
 def print_generator_nn(embedding, generator_outputs, vocab):
     inv_vocab = {v: k for k, v in vocab.items()}
-    words_produced = []
-    for output in generator_outputs:
-        # just print the first one in the batch for now
-        output = output[0]
-        best_match = np.argmax(np.dot(embedding, output))
-        words_produced.append(inv_vocab[best_match])
-    print ' '.join(words_produced)
+    for i in range(50):
+        words_produced = []
+        for output in generator_outputs:
+            # just print the first one in the batch for now
+            o = output[i]
+            best_match = np.argmax(np.dot(embedding, o))
+            words_produced.append(inv_vocab[best_match])
+        print ' '.join(words_produced)
 
 
 
@@ -23,10 +24,11 @@ def print_generator_nn(embedding, generator_outputs, vocab):
 
 # TODO: fix this... It sucks
 class TextLoader():
-    def __init__(self, data_dir, batch_size, seq_length):
+    def __init__(self, data_dir, batch_size, seq_length, vocab_size):
         self.data_dir = data_dir
         self.batch_size = batch_size
         self.seq_length = seq_length
+        self.vocab_size = vocab_size
 
         input_file = os.path.join(data_dir, "input.txt")
         vocab_file = os.path.join(data_dir, "vocab.pkl")
@@ -72,8 +74,9 @@ class TextLoader():
         # Build vocabulary
         word_counts = collections.Counter(sentences)
         # Mapping from index to word
-        vocabulary_inv = [x[0] for x in word_counts.most_common()]
+        vocabulary_inv = [x[0] for x in word_counts.most_common(self.vocab_size)]
         vocabulary_inv = list(sorted(vocabulary_inv))
+        vocabulary_inv = ['UNK', 'PAD', 'END'] + vocabulary_inv
         # Mapping from word to index
         vocabulary = {x: i for i, x in enumerate(vocabulary_inv)}
         return [vocabulary, vocabulary_inv]
@@ -86,14 +89,17 @@ class TextLoader():
         data = self.clean_str(data)
         x_text = data.split()
         self.vocab, self.words = self.build_vocab(x_text)
-        self.vocab_size = len(self.words)
 
         with open(vocab_file, 'wb') as f:
             cPickle.dump(self.words, f)
 
-        #The same operation liek this [self.vocab[word] for word in x_text]
-        # index of words as our basic data
-        self.tensor = np.array(list(map(self.vocab.get, x_text)))
+        self.tensor = []
+        for word in x_text:
+            if not self.vocab.has_key(word):
+                self.tensor.append(self.vocab['UNK'])
+            else:
+                self.tensor.append(self.vocab[word])
+        self.tensor = np.asarray(self.tensor)
         # Save the data to data.npy
         np.save(tensor_file, self.tensor)
 
@@ -115,7 +121,6 @@ class TextLoader():
         self.tensor = self.tensor[:self.num_batches * self.batch_size * self.seq_length]
         xdata = self.tensor
         ydata = np.copy(self.tensor)
-
         ydata[:-1] = xdata[1:]
         ydata[-1] = xdata[0]
         self.x_batches = np.split(xdata.reshape(self.batch_size, -1), self.num_batches, 1)

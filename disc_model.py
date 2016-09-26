@@ -25,6 +25,7 @@ class DiscModel():
             self.cell = cell = rnn_cell.MultiRNNCell([cell] * args.num_layers)
             # If the input data is given as word tokens, feed this value
             self.input_data_text = tf.placeholder(tf.int32, [args.batch_size, args.seq_length], name='input_data_text')
+            #self.input_data_text = tf.Variable(tf.zeros((args.batch_size, args.seq_length), dtype=tf.int32), name='input_data_text')
 
             self.initial_state = cell.zero_state(args.batch_size, tf.float32)
             # Fully connected layer is applied to the final state to determine the output class
@@ -37,7 +38,7 @@ class DiscModel():
         # output_text, states_text = rnn.rnn(cell, inputs, initial_state=self.initial_state)
         predicted_classes_text = self.discriminate_text(self.input_data_text)
         self.loss_text = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(predicted_classes_text, np.ones((self.args.batch_size, 1), dtype=np.float32)))
-        gen_model_initial_state = np.random.uniform(-1., 1., (self.args.batch_size, 4*self.args.rnn_size)).astype('float32')
+        gen_model_initial_state = np.random.uniform(-1., 1., (self.args.batch_size, self.args.rnn_size)).astype('float32')
         gen_model_input_data = self.input_data_text
         generated_wv = gen_model.generate(gen_model_initial_state, gen_model_input_data)
         predicted_classes_wv = self.discriminate_wv(generated_wv)
@@ -60,9 +61,8 @@ class DiscModel():
 
     def discriminate_text(self, input_data_text):
         inputs = tf.split(1, self.args.seq_length, tf.nn.embedding_lookup(self.embedding, input_data_text))
+        # TODO: Trying this out right now as a hack.. How to make this more principled? Adding noise to the disciminator word vectors
+        # so it is harder for it to knock the generator for using the wrong word vecs
+        #inputs = [tf.squeeze(input_, [1]) + np.random.normal(0., .01, (self.args.batch_size, self.args.rnn_size)) for input_ in inputs]
         inputs = [tf.squeeze(input_, [1]) for input_ in inputs]
-        with tf.variable_scope('DISC', reuse=self.has_init_seq2seq) as scope:
-            self.has_init_seq2seq = True
-            output_wv, states_wv = seq2seq.rnn_decoder(inputs, self.initial_state, self.cell, scope=scope)
-            predicted_classes_wv = tf.matmul(output_wv[-1], self.fc_layer)
-        return predicted_classes_wv
+        return self.discriminate_wv(inputs)

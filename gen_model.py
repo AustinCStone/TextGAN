@@ -21,8 +21,8 @@ class GenModel():
             cell = cell_fn(args.rnn_size)
 
             self.cell = cell = rnn_cell.MultiRNNCell([cell] * args.num_layers)
-            self.input_data = tf.placeholder(tf.int32, [args.batch_size, args.seq_length])
-            self.initial_state = tf.placeholder(tf.float32, [args.batch_size, args.rnn_size * 4], name="initial_state")
+            self.input_data = tf.placeholder(tf.int32, [args.batch_size, args.seq_length], name='input_data')
+            self.initial_state = cell.zero_state(args.batch_size, tf.float32)
             self.outputs = tf.placeholder(tf.float32, [args.seq_length, args.batch_size, args.rnn_size])
             self.lr = tf.Variable(0.0, trainable=False, name='learning_rate')
             self.has_init_seq2seq = False
@@ -35,6 +35,9 @@ class GenModel():
         grads, _ = tf.clip_by_global_norm(tf.gradients(self.loss, tvars),
                 self.args.grad_clip)
         optimizer = tf.train.AdamOptimizer(self.lr)
+        for g, v in zip(grads, tvars):
+            if g is not None:
+                print v.name
         g_and_v = [(g, v) for g, v in zip(grads, tvars) if v.name.startswith('GEN')]
         self.train_op = optimizer.apply_gradients(g_and_v)
 
@@ -43,7 +46,7 @@ class GenModel():
         inputs = [tf.squeeze(input_, [1]) for input_ in inputs]
 
         # TODO: Should we have some transition weights here?
-        def loop(prev, _):
+        def loop(prev, i):
             return prev
 
         #print initial_state.get_shape()

@@ -13,34 +13,36 @@ from standard_model import StandardModel
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--data_dir', type=str, default='data/sherlock',
+    parser.add_argument('--data_dir', type=str, default='data/tinyshakespeare',
                        help='data directory containing input.txt')
     parser.add_argument('--save_dir', type=str, default='save',
                        help='directory to store checkpointed models')
-    parser.add_argument('--rnn_size', type=int, default=256,
+    parser.add_argument('--rnn_size', type=int, default=20,
                        help='size of RNN hidden state')
-    parser.add_argument('--num_layers', type=int, default=2,
+    parser.add_argument('--num_layers', type=int, default=1,
                        help='number of layers in the RNN')
-    parser.add_argument('--model', type=str, default='lstm',
+    parser.add_argument('--model', type=str, default='gru',
                         help='rnn, gru, or lstm')
-    parser.add_argument('--gen_model', type=str, default='lstm',
+    parser.add_argument('--gen_model', type=str, default='gru',
                        help='rnn, gru, or lstm')
-    parser.add_argument('--disc_model', type=str, default='lstm',
+    parser.add_argument('--disc_model', type=str, default='gru',
                        help='rnn, gru, or lstm')
     parser.add_argument('--batch_size', type=int, default=50,
                        help='minibatch size')
-    parser.add_argument('--seq_length', type=int, default=25,
+    parser.add_argument('--seq_length', type=int, default=10,
                        help='RNN sequence length')
     parser.add_argument('--num_epochs', type=int, default=50,
                        help='number of epochs')
-    parser.add_argument('--save_every', type=int, default=1,
+    parser.add_argument('--save_every', type=int, default=10,
                        help='save frequency')
     parser.add_argument('--grad_clip', type=float, default=5.,
                        help='clip gradients at this value')
     parser.add_argument('--learning_rate', type=float, default=0.002,
                        help='learning rate')
     parser.add_argument('--decay_rate', type=float, default=0.97,
-                       help='decay rate for rmsprop')                       
+                       help='decay rate for rmsprop')
+    parser.add_argument('--vocab_size', type=int, default=20,
+                       help='max vocabulary size')                        
     parser.add_argument('--init_from', type=str, default=None,
                        help="""continue training from saved gen_model at this path. Path must contain files saved by previous training process: 
                             'config.pkl'        : configuration;
@@ -49,7 +51,7 @@ def main():
                                                   Note: this file contains absolute paths, be careful when moving files around;
                             'gen_model.ckpt-*'      : file(s) with gen_model definition (created by tf)
                         """)
-    parser.add_argument('--disc_train_bound', type=float, default=1.0,
+    parser.add_argument('--disc_train_bound', type=float, default=.5,
                        help='train the discriminator (only) until its loss reaches this bound')
     parser.add_argument('--gen_train_bound', type=float, default=1.0,
                        help='train the generator (only) until its loss reaches this bound')
@@ -57,8 +59,8 @@ def main():
     train(args)
 
 def train(args):
-    data_loader = TextLoader(args.data_dir, args.batch_size, args.seq_length)
-    args.vocab_size = data_loader.vocab_size
+    data_loader = TextLoader(args.data_dir, args.batch_size, args.seq_length, args.vocab_size)
+    args.vocab_size = data_loader.vocab_size + 3 # plus 3 for unknown, end, and pad tokens
     
     # check compatibility if training is continued from previously saved gen_model
     if args.init_from is not None:
@@ -95,6 +97,7 @@ def train(args):
     disc_model.attach_cost(gen_model)
 
     with tf.Session() as sess:
+        writer = tf.train.SummaryWriter("coolgraph", sess.graph)
         tf.initialize_all_variables().run()
         saver = tf.train.Saver(tf.all_variables())
         # restore gen_model
@@ -105,20 +108,22 @@ def train(args):
         for e in range(args.num_epochs):
             sess.run(tf.assign(gen_model.lr, args.learning_rate * (args.decay_rate ** e)))
             sess.run(tf.assign(disc_model.lr, args.learning_rate * (args.decay_rate ** e)))
+            sess.run(tf.assign(stand_model.lr, args.learning_rate * (args.decay_rate ** e)))
             data_loader.reset_batch_pointer()
-            state = stand_model.initial_state.eval()
             for b in range(data_loader.num_batches):
                 start = time.time()
                 x, y = data_loader.next_batch()
-                # TODO: Why must the input be 4 X rnn_size?
-                # TODO: WHY MUST WE FEED THE DISC MODEL HERE??????????????????????
-                gen_feed = {disc_model.input_data_text: x, gen_model.input_data: x, gen_model.initial_state: np.random.uniform(-1., 1., (args.batch_size, 4*args.rnn_size)).astype('float32')}
+                # TODO: WHY MUST WE FEED THE DISC MODEL HERE? 
+                # I need to look into the TensorFlow code, but I think this is because in the disciminator model, I use the same
+                # RNN chain for disciminating words that are fed from the text corpus and disciminating the generator's output. 
+                # I think this chain sees that there are nodes in the graph which (although not necessary to be fed), could impact the output. 
+                # Therefore it demands these nodes be fed even if they aren't actually used when the generator is run?
+                gen_feed = {disc_model.input_data_text: np.zeros_like(x), gen_model.input_data: x, gen_model.initial_state: np.random.uniform(-1., 1., (args.batch_size, args.rnn_size)).astype('float32')}
                 gen_outputs = [gen_model.loss, gen_model.outputs, gen_model.embedding, gen_model.train_op]
-
-                disc_feed = {disc_model.input_data_text: x, gen_model.input_data: x, gen_model.initial_state: np.random.uniform(-1., 1., (args.batch_size, 4*args.rnn_size)).astype('float32')}
+                disc_feed = {disc_model.input_data_text: x, gen_model.input_data: x, gen_model.initial_state: np.random.uniform(-1., 1., (args.batch_size, args.rnn_size)).astype('float32')}
                 disc_outputs = [disc_model.loss, disc_model.train_op]
 
-                stand_feed = {stand_model.input_data: x, stand_model.targets: y, stand_model.initial_state: state}
+                stand_feed = {stand_model.input_data: x, stand_model.targets: y}
                 stand_outputs = [stand_model.loss, stand_model.final_state, stand_model.train_op]
 
                 if training_gen:
