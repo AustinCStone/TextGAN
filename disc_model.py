@@ -26,7 +26,7 @@ class DiscModel():
             # If the input data is given as word tokens, feed this value
             self.input_data_text = tf.placeholder(tf.int32, [args.batch_size, args.seq_length], name='input_data_text')
             #self.input_data_text = tf.Variable(tf.zeros((args.batch_size, args.seq_length), dtype=tf.int32), name='input_data_text')
-
+            
             self.initial_state = cell.zero_state(args.batch_size, tf.float32)
             # Fully connected layer is applied to the final state to determine the output class
             self.fc_layer = tf.Variable(tf.random_normal([args.rnn_size, 1], stddev=0.35, dtype=tf.float32), name='disc_fc_layer')
@@ -38,9 +38,7 @@ class DiscModel():
         # output_text, states_text = rnn.rnn(cell, inputs, initial_state=self.initial_state)
         predicted_classes_text = self.discriminate_text(self.input_data_text)
         self.loss_text = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(predicted_classes_text, np.ones((self.args.batch_size, 1), dtype=np.float32)))
-        gen_model_initial_state = np.random.uniform(-1., 1., (self.args.batch_size, self.args.rnn_size)).astype('float32')
-        gen_model_input_data = self.input_data_text
-        generated_wv = gen_model.generate(gen_model_initial_state, gen_model_input_data)
+        generated_wv = gen_model.generate()
         predicted_classes_wv = self.discriminate_wv(generated_wv)
         self.loss_gen = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(predicted_classes_wv, np.zeros((self.args.batch_size, 1), dtype=np.float32)))
         self.loss = .5 * self.loss_gen + .5 * self.loss_text

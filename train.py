@@ -6,18 +6,20 @@ import time
 import os
 from six.moves import cPickle
 
-from utils import TextLoader, print_generator_nn
+from utils import TextLoader, print_wv_nn, print_softmax
 from gen_model import GenModel
 from disc_model import DiscModel
 from standard_model import StandardModel
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--data_dir', type=str, default='data/tinyshakespeare',
+    parser.add_argument('--latent_size', type=int, default=10,
+                        help='latent space size of the generator') 
+    parser.add_argument('--data_dir', type=str, default='data/sherlock',
                        help='data directory containing input.txt')
     parser.add_argument('--save_dir', type=str, default='save',
                        help='directory to store checkpointed models')
-    parser.add_argument('--rnn_size', type=int, default=20,
+    parser.add_argument('--rnn_size', type=int, default=400,
                        help='size of RNN hidden state')
     parser.add_argument('--num_layers', type=int, default=1,
                        help='number of layers in the RNN')
@@ -29,7 +31,7 @@ def main():
                        help='rnn, gru, or lstm')
     parser.add_argument('--batch_size', type=int, default=50,
                        help='minibatch size')
-    parser.add_argument('--seq_length', type=int, default=10,
+    parser.add_argument('--seq_length', type=int, default=8,
                        help='RNN sequence length')
     parser.add_argument('--num_epochs', type=int, default=50,
                        help='number of epochs')
@@ -41,7 +43,7 @@ def main():
                        help='learning rate')
     parser.add_argument('--decay_rate', type=float, default=0.97,
                        help='decay rate for rmsprop')
-    parser.add_argument('--vocab_size', type=int, default=20,
+    parser.add_argument('--vocab_size', type=int, default=20000,
                        help='max vocabulary size')                        
     parser.add_argument('--init_from', type=str, default=None,
                        help="""continue training from saved gen_model at this path. Path must contain files saved by previous training process: 
@@ -118,33 +120,40 @@ def train(args):
                 # RNN chain for disciminating words that are fed from the text corpus and disciminating the generator's output. 
                 # I think this chain sees that there are nodes in the graph which (although not necessary to be fed), could impact the output. 
                 # Therefore it demands these nodes be fed even if they aren't actually used when the generator is run?
-                gen_feed = {disc_model.input_data_text: np.zeros_like(x), gen_model.input_data: x, gen_model.initial_state: np.random.uniform(-1., 1., (args.batch_size, args.rnn_size)).astype('float32')}
-                gen_outputs = [gen_model.loss, gen_model.outputs, gen_model.embedding, gen_model.train_op]
-                disc_feed = {disc_model.input_data_text: x, gen_model.input_data: x, gen_model.initial_state: np.random.uniform(-1., 1., (args.batch_size, args.rnn_size)).astype('float32')}
+                gen_model_latent_state = np.random.uniform(-1., 1., (args.batch_size, args.latent_size)).astype('float32')
+                gen_feed = {disc_model.input_data_text: np.zeros_like(x), gen_model.input_data: x, gen_model.latent_state: gen_model_latent_state}
+                gen_outputs = [gen_model.loss, gen_model.outputs, gen_model.train_op]
+
+                disc_feed = {disc_model.input_data_text: x, gen_model.input_data: x, gen_model.latent_state: gen_model_latent_state}
                 disc_outputs = [disc_model.loss, disc_model.train_op]
 
                 stand_feed = {stand_model.input_data: x, stand_model.targets: y}
-                stand_outputs = [stand_model.loss, stand_model.final_state, stand_model.train_op]
+                desired_stand_outputs = [stand_model.loss, stand_model.probs, stand_model.self_feed_probs, stand_model.embedding, stand_model.train_op]
 
+                stand_loss, stand_outputs, stand_sf_outputs, embedding, _ = sess.run(desired_stand_outputs, stand_feed)
+                print 'outputs: '
+                print_softmax(embedding, stand_outputs, data_loader.vocab, args.batch_size, args.seq_length)
+                print 'self feed output'
+                print_softmax(embedding, stand_sf_outputs, data_loader.vocab, args.batch_size, args.seq_length)
+                print 'batch is {}, epoch is {}, stand_loss is {}'.format(e * data_loader.num_batches + b, e, stand_loss)
+                
                 if training_gen:
-                    gen_loss, gen_outputs, embedding, _ = sess.run(gen_outputs, gen_feed)
-                    print 'epoch is {}, gen_loss is {}'.format(e * data_loader.num_batches + b, gen_loss)
-                    print_generator_nn(embedding, gen_outputs, data_loader.vocab)
+                    gen_loss, gen_outputs, _ = sess.run(gen_outputs, gen_feed)
+                    print 'batch is {}, epoch is {}, gen_loss is {}'.format(e * data_loader.num_batches + b, e, gen_loss)
+                    print 'gen output: '
+                    print_wv_nn(embedding, gen_outputs, data_loader.vocab, args.batch_size)
                     if gen_loss < args.gen_train_bound:
                         training_gen = False
                         training_disc = True
                         print 'training the discriminator only...'
                 if training_disc:
                     disc_loss, _ = sess.run(disc_outputs, disc_feed)
-                    print 'epoch is {}, disc_loss is {}'.format(e * data_loader.num_batches + b, disc_loss)
+                    print 'batch is {}, epoch is {}, disc_loss is {}'.format(e * data_loader.num_batches + b, e, disc_loss)
                     if disc_loss < args.disc_train_bound:
                         training_disc = False
                         training_gen = True
                         print 'training the generator only...'
-
-                stand_loss, _, _ = sess.run(stand_outputs, stand_feed)
-                print 'epoch is {}, stand_loss is {}'.format(e * data_loader.num_batches + b, stand_loss)
-
+                
                 end = time.time()
                 '''
                 print "{}/{} (epoch {}), disc_loss = {:.3f}, stand_loss = {:.3f}, gen_loss = {:.3f}, time/batch = {:.3f}" \

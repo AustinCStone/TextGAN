@@ -7,11 +7,11 @@ import re
 import itertools
 
 
-def print_generator_nn(embedding, generator_outputs, vocab):
+def print_wv_nn(embedding, approx_wv_outputs, vocab, batch_size):
     inv_vocab = {v: k for k, v in vocab.items()}
-    for i in range(50):
+    for i in range(batch_size):
         words_produced = []
-        for output in generator_outputs:
+        for output in approx_wv_outputs:
             # just print the first one in the batch for now
             o = output[i]
             best_match = np.argmax(np.dot(embedding, o))
@@ -19,6 +19,15 @@ def print_generator_nn(embedding, generator_outputs, vocab):
         print ' '.join(words_produced)
 
 
+def print_softmax(embedding, softmax_outputs, vocab, batch_size, seq_length):
+    inv_vocab = {v: k for k, v in vocab.items()}
+    print softmax_outputs.shape
+    for i in range(batch_size - seq_length):
+        words_produced = []
+        for output in softmax_outputs[i:i + seq_length]:
+            best_match = np.argmax(output)
+            words_produced.append(inv_vocab[best_match])
+        print ' '.join(words_produced)
 
 
 
