@@ -31,12 +31,12 @@ class StandardModel():
             softmax_w = tf.get_variable("softmax_w", [args.rnn_size, args.vocab_size])
             softmax_b = tf.get_variable("softmax_b", [args.vocab_size])
             inputs = tf.split(1, args.seq_length, tf.nn.embedding_lookup(self.embedding, self.input_data))
-            inputs = [tf.squeeze(input_, [1]) for input_ in inputs]
+            inputs = map(lambda i: tf.nn.l2_normalize(i, 1), [tf.squeeze(input_, [1]) for input_ in inputs])
 
         def loop(prev, i):
             prev = tf.matmul(prev, softmax_w) + softmax_b
             prev_symbol = tf.stop_gradient(tf.argmax(prev, 1))
-            return tf.nn.embedding_lookup(embedding, prev_symbol)
+            return tf.nn.l2_normalize(tf.nn.embedding_lookup(embedding, prev_symbol), 1)
 
         o, _ = seq2seq.rnn_decoder(inputs, self.initial_state, cell, loop_function=None, scope='STAND')
         with tf.variable_scope('STAND', reuse=True) as scope:

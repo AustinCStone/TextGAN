@@ -26,7 +26,7 @@ class DiscModel():
             # If the input data is given as word tokens, feed this value
             self.input_data_text = tf.placeholder(tf.int32, [args.batch_size, args.seq_length], name='input_data_text')
             #self.input_data_text = tf.Variable(tf.zeros((args.batch_size, args.seq_length), dtype=tf.int32), name='input_data_text')
-            
+
             self.initial_state = cell.zero_state(args.batch_size, tf.float32)
             # Fully connected layer is applied to the final state to determine the output class
             self.fc_layer = tf.Variable(tf.random_normal([args.rnn_size, 1], stddev=0.35, dtype=tf.float32), name='disc_fc_layer')
@@ -59,8 +59,5 @@ class DiscModel():
 
     def discriminate_text(self, input_data_text):
         inputs = tf.split(1, self.args.seq_length, tf.nn.embedding_lookup(self.embedding, input_data_text))
-        # TODO: Trying this out right now as a hack.. How to make this more principled? Adding noise to the disciminator word vectors
-        # so it is harder for it to knock the generator for using the wrong word vecs
-        #inputs = [tf.squeeze(input_, [1]) + np.random.normal(0., .01, (self.args.batch_size, self.args.rnn_size)) for input_ in inputs]
-        inputs = [tf.squeeze(input_, [1]) for input_ in inputs]
+        inputs = map(lambda i: tf.nn.l2_normalize(i, 1), [tf.squeeze(input_, [1]) for input_ in inputs])
         return self.discriminate_wv(inputs)

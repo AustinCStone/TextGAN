@@ -19,9 +19,9 @@ def main():
                        help='data directory containing input.txt')
     parser.add_argument('--save_dir', type=str, default='save',
                        help='directory to store checkpointed models')
-    parser.add_argument('--rnn_size', type=int, default=400,
+    parser.add_argument('--rnn_size', type=int, default=256,
                        help='size of RNN hidden state')
-    parser.add_argument('--num_layers', type=int, default=1,
+    parser.add_argument('--num_layers', type=int, default=2,
                        help='number of layers in the RNN')
     parser.add_argument('--model', type=str, default='gru',
                         help='rnn, gru, or lstm')
@@ -31,11 +31,11 @@ def main():
                        help='rnn, gru, or lstm')
     parser.add_argument('--batch_size', type=int, default=50,
                        help='minibatch size')
-    parser.add_argument('--seq_length', type=int, default=8,
+    parser.add_argument('--seq_length', type=int, default=30,
                        help='RNN sequence length')
     parser.add_argument('--num_epochs', type=int, default=50,
                        help='number of epochs')
-    parser.add_argument('--save_every', type=int, default=10,
+    parser.add_argument('--save_every', type=int, default=1000,
                        help='save frequency')
     parser.add_argument('--grad_clip', type=float, default=5.,
                        help='clip gradients at this value')
@@ -46,14 +46,14 @@ def main():
     parser.add_argument('--vocab_size', type=int, default=20000,
                        help='max vocabulary size')                        
     parser.add_argument('--init_from', type=str, default=None,
-                       help="""continue training from saved gen_model at this path. Path must contain files saved by previous training process: 
+                       help="""continue training from saved model at this path. Path must contain files saved by previous training process: 
                             'config.pkl'        : configuration;
                             'words_vocab.pkl'   : vocabulary definitions;
                             'checkpoint'        : paths to gen_model file(s) (created by tf).
                                                   Note: this file contains absolute paths, be careful when moving files around;
-                            'gen_model.ckpt-*'      : file(s) with gen_model definition (created by tf)
+                            'model.ckpt-*'      : file(s) with model definition (created by tf)
                         """)
-    parser.add_argument('--disc_train_bound', type=float, default=.5,
+    parser.add_argument('--disc_train_bound', type=float, default=.3,
                        help='train the discriminator (only) until its loss reaches this bound')
     parser.add_argument('--gen_train_bound', type=float, default=1.0,
                        help='train the generator (only) until its loss reaches this bound')
@@ -131,10 +131,6 @@ def train(args):
                 desired_stand_outputs = [stand_model.loss, stand_model.probs, stand_model.self_feed_probs, stand_model.embedding, stand_model.train_op]
 
                 stand_loss, stand_outputs, stand_sf_outputs, embedding, _ = sess.run(desired_stand_outputs, stand_feed)
-                print 'outputs: '
-                print_softmax(embedding, stand_outputs, data_loader.vocab, args.batch_size, args.seq_length)
-                print 'self feed output'
-                print_softmax(embedding, stand_sf_outputs, data_loader.vocab, args.batch_size, args.seq_length)
                 print 'batch is {}, epoch is {}, stand_loss is {}'.format(e * data_loader.num_batches + b, e, stand_loss)
                 
                 if training_gen:
@@ -153,21 +149,18 @@ def train(args):
                         training_disc = False
                         training_gen = True
                         print 'training the generator only...'
-                
+
+                print 'stand outputs: '
+                print_softmax(stand_outputs, data_loader.vocab, args.batch_size, args.seq_length)
+                print 'stand self feed output'
+                print_softmax(stand_sf_outputs, data_loader.vocab, args.batch_size, args.seq_length)
                 end = time.time()
-                '''
-                print "{}/{} (epoch {}), disc_loss = {:.3f}, stand_loss = {:.3f}, gen_loss = {:.3f}, time/batch = {:.3f}" \
-                    .format(e * data_loader.num_batches + b,
-                            args.num_epochs * data_loader.num_batches,
-                            e, disc_loss, stand_loss, gen_loss, end - start)
-                '''
-                '''
+
                 if (e * data_loader.num_batches + b) % args.save_every == 0 \
                         or (e==args.num_epochs-1 and b == data_loader.num_batches-1): # save for the last result
-                    checkpoint_path = os.path.join(args.save_dir, 'gen_model.ckpt')
+                    checkpoint_path = os.path.join(args.save_dir, 'model.ckpt')
                     saver.save(sess, checkpoint_path, global_step = e * data_loader.num_batches + b)
-                    print "gen_model saved to {}".format(checkpoint_path)
-                '''
+                    print "model saved to {}".format(checkpoint_path)
 
 if __name__ == '__main__':
     main()

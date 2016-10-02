@@ -9,19 +9,25 @@ import itertools
 
 def print_wv_nn(embedding, approx_wv_outputs, vocab, batch_size):
     inv_vocab = {v: k for k, v in vocab.items()}
+    normed_embedding = np.copy(embedding)
+    avg_similarity = 0.
+    for i, row in enumerate(normed_embedding):
+        normed_embedding[i] = row / np.sqrt(max(sum(row**2), 1e-12))
     for i in range(batch_size):
         words_produced = []
         for output in approx_wv_outputs:
             # just print the first one in the batch for now
             o = output[i]
-            best_match = np.argmax(np.dot(embedding, o))
+            dot = np.dot(normed_embedding, o)
+            best_match = np.argmax(dot)
+            avg_similarity += dot[best_match]
             words_produced.append(inv_vocab[best_match])
         print ' '.join(words_produced)
+    print 'avg similarity is {}'.format(avg_similarity / (batch_size * len(approx_wv_outputs)))
 
 
-def print_softmax(embedding, softmax_outputs, vocab, batch_size, seq_length):
+def print_softmax(softmax_outputs, vocab, batch_size, seq_length):
     inv_vocab = {v: k for k, v in vocab.items()}
-    print softmax_outputs.shape
     for i in range(batch_size - seq_length):
         words_produced = []
         for output in softmax_outputs[i:i + seq_length]:
