@@ -46,10 +46,10 @@ class GenModel():
         grads, _ = tf.clip_by_global_norm(tf.gradients(self.loss, tvars),
                 self.args.grad_clip)
         optimizer = tf.train.AdamOptimizer(self.lr)
-        for g, v in zip(grads, tvars):
-            if g is not None:
-                print v.name
-        g_and_v = [(g, v) for g, v in zip(grads, tvars) if v.name.startswith('GEN')]
+        g_and_v = [(g, v) for g, v in zip(grads, tvars) if v.name.startswith('GEN') or v.name.startswith('embedding')]
+        print '#########'
+        for _, v in g_and_v:
+            print v.name
         self.train_op = optimizer.apply_gradients(g_and_v)
 
     def generate(self):

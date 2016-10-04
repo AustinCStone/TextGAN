@@ -9,7 +9,6 @@ from six.moves import cPickle
 from utils import TextLoader, print_wv_nn, print_softmax
 from gen_model import GenModel
 from disc_model import DiscModel
-from standard_model import StandardModel
 
 def main():
     parser = argparse.ArgumentParser()
@@ -94,7 +93,6 @@ def train(args):
     
     disc_model = DiscModel(args)
     gen_model = GenModel(args)
-    stand_model = StandardModel(args, disc_model.embedding)
     gen_model.attach_cost(disc_model)
     disc_model.attach_cost(gen_model)
 
@@ -110,7 +108,6 @@ def train(args):
         for e in range(args.num_epochs):
             sess.run(tf.assign(gen_model.lr, args.learning_rate * (args.decay_rate ** e)))
             sess.run(tf.assign(disc_model.lr, args.learning_rate * (args.decay_rate ** e)))
-            sess.run(tf.assign(stand_model.lr, args.learning_rate * (args.decay_rate ** e)))
             data_loader.reset_batch_pointer()
             for b in range(data_loader.num_batches):
                 start = time.time()
@@ -122,19 +119,13 @@ def train(args):
                 # Therefore it demands these nodes be fed even if they aren't actually used when the generator is run?
                 gen_model_latent_state = np.random.uniform(-1., 1., (args.batch_size, args.latent_size)).astype('float32')
                 gen_feed = {disc_model.input_data_text: np.zeros_like(x), gen_model.input_data: x, gen_model.latent_state: gen_model_latent_state}
-                gen_outputs = [gen_model.loss, gen_model.outputs, gen_model.train_op]
+                gen_outputs = [gen_model.loss, gen_model.outputs, gen_model.train_op, gen_model.embedding]
 
                 disc_feed = {disc_model.input_data_text: x, gen_model.input_data: x, gen_model.latent_state: gen_model_latent_state}
-                disc_outputs = [disc_model.loss, disc_model.train_op]
+                disc_outputs = [disc_model.loss, disc_model.train_op, disc_model.embedding]
 
-                stand_feed = {stand_model.input_data: x, stand_model.targets: y}
-                desired_stand_outputs = [stand_model.loss, stand_model.probs, stand_model.self_feed_probs, stand_model.embedding, stand_model.train_op]
-
-                stand_loss, stand_outputs, stand_sf_outputs, embedding, _ = sess.run(desired_stand_outputs, stand_feed)
-                print 'batch is {}, epoch is {}, stand_loss is {}'.format(e * data_loader.num_batches + b, e, stand_loss)
-                
                 if training_gen:
-                    gen_loss, gen_outputs, _ = sess.run(gen_outputs, gen_feed)
+                    gen_loss, gen_outputs, _, embedding = sess.run(gen_outputs, gen_feed)
                     print 'batch is {}, epoch is {}, gen_loss is {}'.format(e * data_loader.num_batches + b, e, gen_loss)
                     print 'gen output: '
                     print_wv_nn(embedding, gen_outputs, data_loader.vocab, args.batch_size)
@@ -143,17 +134,13 @@ def train(args):
                         training_disc = True
                         print 'training the discriminator only...'
                 if training_disc:
-                    disc_loss, _ = sess.run(disc_outputs, disc_feed)
+                    disc_loss, _, embedding = sess.run(disc_outputs, disc_feed)
                     print 'batch is {}, epoch is {}, disc_loss is {}'.format(e * data_loader.num_batches + b, e, disc_loss)
                     if disc_loss < args.disc_train_bound:
                         training_disc = False
                         training_gen = True
                         print 'training the generator only...'
 
-                print 'stand outputs: '
-                print_softmax(stand_outputs, data_loader.vocab, args.batch_size, args.seq_length)
-                print 'stand self feed output'
-                print_softmax(stand_sf_outputs, data_loader.vocab, args.batch_size, args.seq_length)
                 end = time.time()
 
                 if (e * data_loader.num_batches + b) % args.save_every == 0 \

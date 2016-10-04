@@ -46,7 +46,10 @@ class DiscModel():
         grads, _ = tf.clip_by_global_norm(tf.gradients(self.loss, tvars),
             self.args.grad_clip)
         # optimize only discriminator owned variables 
-        g_and_v = [(g, v) for g, v in zip(grads, tvars) if v.name.startswith('DISC')]
+        g_and_v = [(g, v) for g, v in zip(grads, tvars) if v.name.startswith('DISC') or v.name.startswith('embedding')]
+        print '##########'
+        for _, v in g_and_v:
+            print v.name
         optimizer = tf.train.AdamOptimizer(self.lr)
         self.train_op = optimizer.apply_gradients(g_and_v)
 
